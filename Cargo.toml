@@ -1,5 +1,5 @@
 [package]
-name = "video_editor_for_devs"
+name = "pomodoro_todo_list"
 version = "0.1.0"
 edition = "2021"
 

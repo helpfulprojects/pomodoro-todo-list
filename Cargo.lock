@@ -2281,6 +2281,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pomodoro_todo_list"
+version = "0.1.0"
+dependencies = [
+ "byte-unit",
+ "eframe",
+ "egui_extras",
+ "env_logger",
+ "rusqlite",
+]
+
+[[package]]
 name = "ppv-lite86"
 version = "0.2.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3041,17 +3052,6 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
-
-[[package]]
-name = "video_editor_for_devs"
-version = "0.1.0"
-dependencies = [
- "byte-unit",
- "eframe",
- "egui_extras",
- "env_logger",
- "rusqlite",
-]
 
 [[package]]
 name = "walkdir"

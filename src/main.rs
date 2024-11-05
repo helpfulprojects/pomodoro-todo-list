@@ -268,100 +268,74 @@ impl eframe::App for MyApp {
             let mut update_ui = false;
             let timers = get_running_timers(&mut self.conn);
             //ui.label(RichText::new("00:00").size(50.0));
-            TableBuilder::new(ui)
-                .column(Column::remainder())
-                .header(10.0, |mut header| {
-                    header.col(|ui| {
-                        //ui.heading("Task");
-                    });
-                })
-                .body(|mut body| {
-                    body.row(10.0, |mut row| {
-                        row.col(|ui| {
-                            for task in self.tasks.iter_mut() {
-                                if task.locked {
-                                    ui.horizontal(|ui| {
-                                        if ui.checkbox(&mut task.done, "").changed() {
-                                            set_task_status(&mut self.conn, task.done, task.id);
-                                            update_ui = true;
-                                        };
-                                        if ui.label(task.name.clone()).double_clicked() {
-                                            set_task_locked(&mut self.conn, false, task.id);
-                                            update_ui = true;
-                                        }
-                                        if timers.len() > 0 && is_timer_over(&timers[0]) {
-                                            if ui
-                                                .button("+")
-                                                .on_hover_cursor(egui::CursorIcon::PointingHand)
-                                                .clicked()
-                                            {
-                                                update_timer_task(
-                                                    &mut self.conn,
-                                                    timers[0].id,
-                                                    task.id,
-                                                );
-                                                update_ui = true;
-                                            }
-                                        }
-                                        let pomodoros = get_task_pomodoros(&mut self.conn, task.id);
-                                        for n in 1..=pomodoros {
-                                            ui.image(egui::include_image!(
-                                                "../assets/pomodoro.png"
-                                            ));
-                                        }
-                                    });
-                                } else {
-                                    let response = ui.add(
-                                        egui::TextEdit::singleline(&mut task.name)
-                                            .hint_text("Task name..."),
-                                    );
-                                    if response.lost_focus()
-                                        && ui.input(|i| i.key_pressed(egui::Key::Enter))
-                                    {
-                                        set_task_locked(&mut self.conn, true, task.id);
-                                        set_task_just_created(&mut self.conn, true, task.id);
-                                        set_task_name(&mut self.conn, task.name.clone(), task.id);
-                                        if task.name.is_empty() {
-                                            delete_task(&mut self.conn, task.id);
-                                        }
-                                        update_ui = true;
-                                        if task.just_created {
-                                            self.show_new_task_input = false;
-                                        }
-                                    }
-                                    if task.just_created {
-                                        response.request_focus();
-                                    }
-                                }
+            for task in self.tasks.iter_mut() {
+                if task.locked {
+                    ui.horizontal(|ui| {
+                        if ui.checkbox(&mut task.done, "").changed() {
+                            set_task_status(&mut self.conn, task.done, task.id);
+                            update_ui = true;
+                        };
+                        if ui.label(task.name.clone()).double_clicked() {
+                            set_task_locked(&mut self.conn, false, task.id);
+                            update_ui = true;
+                        }
+                        if timers.len() > 0 && is_timer_over(&timers[0]) {
+                            if ui
+                                .button("+")
+                                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                                .clicked()
+                            {
+                                update_timer_task(&mut self.conn, timers[0].id, task.id);
+                                update_ui = true;
                             }
-                            if !self.show_new_task_input {
-                                if ui
-                                    .add(egui::Button::frame(
-                                        egui::Button::new("+ Add Task"),
-                                        false,
-                                    ))
-                                    .on_hover_cursor(egui::CursorIcon::PointingHand)
-                                    .clicked()
-                                {
-                                    create_task(
-                                        &mut self.conn,
-                                        Task {
-                                            id: 0,
-                                            name: self.new_task_name.clone(),
-                                            done: false,
-                                            locked: false,
-                                            estimate: 0,
-                                            just_created: true,
-                                        },
-                                    );
-                                    self.new_task_name = "".to_string();
-                                    self.show_new_task_input = true;
-                                    update_ui = true;
-                                }
-                            }
-                        });
+                        }
+                        let pomodoros = get_task_pomodoros(&mut self.conn, task.id);
+                        for n in 1..=pomodoros {
+                            ui.image(egui::include_image!("../assets/pomodoro.png"));
+                        }
                     });
-                });
+                } else {
+                    let response = ui
+                        .add(egui::TextEdit::singleline(&mut task.name).hint_text("Task name..."));
+                    if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        set_task_locked(&mut self.conn, true, task.id);
+                        set_task_just_created(&mut self.conn, true, task.id);
+                        set_task_name(&mut self.conn, task.name.clone(), task.id);
+                        if task.name.is_empty() {
+                            delete_task(&mut self.conn, task.id);
+                        }
+                        update_ui = true;
+                        if task.just_created {
+                            self.show_new_task_input = false;
+                        }
+                    }
+                    if task.just_created {
+                        response.request_focus();
+                    }
+                }
+            }
+            if !self.show_new_task_input {
+                if ui
+                    .add(egui::Button::frame(egui::Button::new("+ Add Task"), false))
+                    .on_hover_cursor(egui::CursorIcon::PointingHand)
+                    .clicked()
+                {
+                    create_task(
+                        &mut self.conn,
+                        Task {
+                            id: 0,
+                            name: self.new_task_name.clone(),
+                            done: false,
+                            locked: false,
+                            estimate: 0,
+                            just_created: true,
+                        },
+                    );
+                    self.new_task_name = "".to_string();
+                    self.show_new_task_input = true;
+                    update_ui = true;
+                }
+            }
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
                 ui.horizontal(|ui| {
                     ui.scope(|ui| {

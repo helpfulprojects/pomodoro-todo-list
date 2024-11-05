@@ -127,7 +127,9 @@ fn get_tasks(conn: &Connection) -> Vec<Task> {
 
 fn get_running_timers(conn: &mut Connection) -> Vec<Timer> {
     let mut timers: Vec<Timer> = vec![];
-    let mut stmt = conn.prepare("SELECT * FROM timers").unwrap();
+    let mut stmt = conn
+        .prepare("SELECT * FROM timers where task is NULL")
+        .unwrap();
     let timers_iter = stmt
         .query_map([], |row| {
             Ok(Timer {
@@ -214,21 +216,63 @@ fn create_task(conn: &mut Connection, task: Task) {
     tx.commit().unwrap();
 }
 
+fn get_task_pomodoros(conn: &mut Connection, task_id: i32) -> usize {
+    let mut timers: Vec<Timer> = vec![];
+    let mut stmt = conn
+        .prepare("SELECT * FROM timers where task = :id")
+        .unwrap();
+    let timers_iter = stmt
+        .query_map(&[(":id", &task_id)], |row| {
+            Ok(Timer {
+                id: row.get(0)?,
+                is_pomodoro: row.get(1)?,
+                start: row.get(2)?,
+                duration: row.get(3)?,
+                task: row.get(4)?,
+            })
+        })
+        .unwrap();
+    for timer in timers_iter {
+        timers.push(timer.unwrap());
+    }
+    timers.len()
+}
+
+fn is_timer_over(timer: &Timer) -> bool {
+    let start = timer.start;
+    let duration = timer.duration;
+    let now = OffsetDateTime::now_local().unwrap();
+    let end = start
+        .checked_add(Duration::minutes(duration.into()))
+        .unwrap();
+    let difference = end - now;
+    let seconds = difference.whole_seconds() % 60;
+    let minutes = (difference.whole_seconds() / 60) % 60;
+    (seconds < 0 || minutes < 0) && timer.is_pomodoro
+}
+
+fn update_timer_task(conn: &mut Connection, timer_id: i32, task_id: i32) {
+    let tx = conn.transaction().unwrap();
+    tx.execute(
+        "UPDATE timers SET task = ?1 where id = ?2",
+        (task_id, timer_id),
+    )
+    .unwrap();
+    tx.commit().unwrap();
+}
+
 impl eframe::App for MyApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             ctx.set_pixels_per_point(2.0);
             let mut update_ui = false;
+            let timers = get_running_timers(&mut self.conn);
             //ui.label(RichText::new("00:00").size(50.0));
             TableBuilder::new(ui)
-                .column(Column::remainder())
                 .column(Column::remainder())
                 .header(10.0, |mut header| {
                     header.col(|ui| {
                         //ui.heading("Task");
-                    });
-                    header.col(|ui| {
-                        //ui.heading("Size");
                     });
                 })
                 .body(|mut body| {
@@ -244,6 +288,26 @@ impl eframe::App for MyApp {
                                         if ui.label(task.name.clone()).double_clicked() {
                                             set_task_locked(&mut self.conn, false, task.id);
                                             update_ui = true;
+                                        }
+                                        if timers.len() > 0 && is_timer_over(&timers[0]) {
+                                            if ui
+                                                .button("+")
+                                                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                                                .clicked()
+                                            {
+                                                update_timer_task(
+                                                    &mut self.conn,
+                                                    timers[0].id,
+                                                    task.id,
+                                                );
+                                                update_ui = true;
+                                            }
+                                        }
+                                        let pomodoros = get_task_pomodoros(&mut self.conn, task.id);
+                                        for n in 1..=pomodoros {
+                                            ui.image(egui::include_image!(
+                                                "../assets/pomodoro.png"
+                                            ));
                                         }
                                     });
                                 } else {
@@ -296,14 +360,10 @@ impl eframe::App for MyApp {
                                 }
                             }
                         });
-                        row.col(|ui| {
-                            //ui.label("Add Task");
-                        });
                     });
                 });
             ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
                 ui.horizontal(|ui| {
-                    let timers = get_running_timers(&mut self.conn);
                     ui.scope(|ui| {
                         ui.style_mut().visuals.widgets.hovered.weak_bg_fill =
                             Color32::from_hex("#A80000").unwrap();

@@ -16,3 +16,4 @@ env_logger = { version = "0.10", default-features = false, features = [
 byte-unit = "5.1.4"
 rusqlite = { version = "0.32.0", features = ["bundled", "time"] }
 time = { version = "0.3.36", features = ["local-offset"] }
+rodio = "0.19.0"

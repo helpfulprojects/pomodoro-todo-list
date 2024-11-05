@@ -1,23 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
-use byte_unit::{Byte, UnitType};
-use eframe::{
-    egui::{self, debug_text, Button, Color32, FontId, RichText, Rounding, TextBuffer},
-    epaint,
-};
+use eframe::egui::{self, Button, Color32, RichText};
+use rodio::{source::Source, Decoder, OutputStream};
 use rusqlite::{Connection, Result};
-use std::{
-    env, fs, io,
-    os::windows::fs::MetadataExt,
-    path::{Path, PathBuf},
-};
-use std::{
-    process::Command,
-    time::{SystemTime, UNIX_EPOCH},
-};
-use time::{Duration, OffsetDateTime, Time, UtcOffset};
-
-use egui_extras::{Column, TableBuilder};
-
+use std::fs::File;
+use std::io::BufReader;
+use time::{Duration, OffsetDateTime};
 fn setup_database() -> Result<Connection> {
     let conn = Connection::open("tasks.db")?;
     //conn.execute("DROP TABLE IF EXISTS tasks", ())?;
@@ -48,7 +35,8 @@ fn setup_database() -> Result<Connection> {
 
 const FOCUS_DURATION: i32 = 1;
 const SHORT_BREAK_DURATION: i32 = 1;
-const LONG_BREAK_DURATION: i32 = 1;
+const LONG_BREAK_DURATION: i32 = 2;
+const DEFAULT_WINDOW_TITLE: &str = "Pomodoro To Do List";
 
 fn main() -> eframe::Result {
     env_logger::init();
@@ -57,7 +45,7 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
     eframe::run_native(
-        "Pomodoro To Do List",
+        DEFAULT_WINDOW_TITLE,
         options,
         Box::new(|cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
@@ -89,6 +77,7 @@ struct MyApp {
     show_new_task_input: bool,
     new_task_name: String,
     tasks: Vec<Task>,
+    played_notification: bool,
 }
 
 impl Default for MyApp {
@@ -98,10 +87,20 @@ impl Default for MyApp {
             show_new_task_input: false,
             new_task_name: "".to_string(),
             tasks: vec![],
+            played_notification: false,
         };
         self_setup.tasks = get_tasks(&self_setup.conn);
+
         self_setup
     }
+}
+
+fn play_notificaiton() {
+    let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+    let file = BufReader::new(File::open("assets/notification.mp3").unwrap());
+    let source = Decoder::new(file).unwrap();
+    stream_handle.play_raw(source.convert_samples()).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(1000));
 }
 
 fn get_tasks(conn: &Connection) -> Vec<Task> {
@@ -267,7 +266,6 @@ impl eframe::App for MyApp {
             ctx.set_pixels_per_point(2.0);
             let mut update_ui = false;
             let timers = get_running_timers(&mut self.conn);
-            //ui.label(RichText::new("00:00").size(50.0));
             for task in self.tasks.iter_mut() {
                 if task.locked {
                     ui.horizontal(|ui| {
@@ -287,6 +285,9 @@ impl eframe::App for MyApp {
                             {
                                 update_timer_task(&mut self.conn, timers[0].id, task.id);
                                 update_ui = true;
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Title(
+                                    DEFAULT_WINDOW_TITLE.to_string(),
+                                ));
                             }
                         }
                         let pomodoros = get_task_pomodoros(&mut self.conn, task.id);
@@ -369,6 +370,10 @@ impl eframe::App for MyApp {
                                     task: Some(0),
                                 },
                             );
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Title(
+                                DEFAULT_WINDOW_TITLE.to_string(),
+                            ));
+                            self.played_notification = false;
                         }
                     });
                     ui.scope(|ui| {
@@ -405,6 +410,10 @@ impl eframe::App for MyApp {
                                     task: Some(0),
                                 },
                             );
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Title(
+                                DEFAULT_WINDOW_TITLE.to_string(),
+                            ));
+                            self.played_notification = false;
                         }
                     });
                     ui.scope(|ui| {
@@ -441,6 +450,10 @@ impl eframe::App for MyApp {
                                     task: Some(0),
                                 },
                             );
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Title(
+                                DEFAULT_WINDOW_TITLE.to_string(),
+                            ));
+                            self.played_notification = false;
                         }
                     });
                     if timers.len() > 0 {
@@ -457,11 +470,26 @@ impl eframe::App for MyApp {
                         if seconds < 0 || minutes < 0 {
                             if timer.is_pomodoro {
                                 ui.label("Done! Add point to task.");
+                                if !self.played_notification {
+                                    play_notificaiton();
+                                    self.played_notification = true;
+                                }
                             } else {
                                 delete_pomodoros_without_task(&mut self.conn);
                             }
                         } else {
                             ui.label(format!("{:0>2}:{:0>2}", minutes, seconds));
+                            if timer.is_pomodoro {
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
+                                    "{:0>2}:{:0>2} Focus",
+                                    minutes, seconds
+                                )));
+                            } else {
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
+                                    "{:0>2}:{:0>2}",
+                                    minutes, seconds
+                                )));
+                            }
                         }
 
                         if ui
@@ -470,6 +498,9 @@ impl eframe::App for MyApp {
                             .clicked()
                         {
                             delete_pomodoros_without_task(&mut self.conn);
+                            ctx.send_viewport_cmd(egui::ViewportCommand::Title(
+                                DEFAULT_WINDOW_TITLE.to_string(),
+                            ));
                         }
                         ui.ctx()
                             .request_repaint_after(std::time::Duration::from_millis(300));

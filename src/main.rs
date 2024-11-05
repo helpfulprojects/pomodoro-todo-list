@@ -1,9 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
-use eframe::egui::{self, Button, Color32, RichText};
+use eframe::egui::{self, Button, Color32, ImageButton, RichText};
 use rodio::{source::Source, Decoder, OutputStream};
 use rusqlite::{Connection, Result};
-use std::fs::File;
 use std::io::BufReader;
+use std::{cmp::max, fs::File};
 use time::{Duration, OffsetDateTime};
 fn setup_database() -> Result<Connection> {
     let conn = Connection::open("tasks.db")?;
@@ -176,6 +176,16 @@ fn set_task_name(conn: &mut Connection, name: String, id: i32) {
     tx.commit().unwrap();
 }
 
+fn set_task_estimate(conn: &mut Connection, estimate: i32, id: i32) {
+    let tx = conn.transaction().unwrap();
+    tx.execute(
+        "UPDATE tasks SET estimate = ?1 where id = ?2",
+        (estimate, id),
+    )
+    .unwrap();
+    tx.commit().unwrap();
+}
+
 fn delete_task(conn: &mut Connection, id: i32) {
     let tx = conn.transaction().unwrap();
     tx.execute("DELETE from tasks where id = ?1", [id]).unwrap();
@@ -293,6 +303,43 @@ impl eframe::App for MyApp {
                         let pomodoros = get_task_pomodoros(&mut self.conn, task.id);
                         for n in 1..=pomodoros {
                             ui.image(egui::include_image!("../assets/pomodoro.png"));
+                        }
+                        if task.estimate > pomodoros.try_into().unwrap() {
+                            for n in 1..=task.estimate - pomodoros as i32 {
+                                if ui
+                                    .add(ImageButton::frame(
+                                        ImageButton::new(egui::include_image!(
+                                            "../assets/estimation.png"
+                                        )),
+                                        false,
+                                    ))
+                                    .on_hover_cursor(egui::CursorIcon::PointingHand)
+                                    .clicked()
+                                {
+                                    set_task_estimate(&mut self.conn, task.estimate - 1, task.id);
+                                    update_ui = true;
+                                }
+                            }
+                        }
+
+                        if ui
+                            .add(ImageButton::frame(
+                                ImageButton::new(egui::include_image!(
+                                    "../assets/add_estimation.png"
+                                )),
+                                false,
+                            ))
+                            .on_hover_cursor(egui::CursorIcon::PointingHand)
+                            .clicked()
+                        {
+                            let new_estimation =
+                                max(pomodoros, task.estimate.try_into().unwrap()) + 1;
+                            set_task_estimate(
+                                &mut self.conn,
+                                new_estimation.try_into().unwrap(),
+                                task.id,
+                            );
+                            update_ui = true;
                         }
                     });
                 } else {

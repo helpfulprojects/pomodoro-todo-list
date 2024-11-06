@@ -33,9 +33,9 @@ fn setup_database() -> Result<Connection> {
     Ok(conn)
 }
 
-const FOCUS_DURATION: i32 = 1;
-const SHORT_BREAK_DURATION: i32 = 1;
-const LONG_BREAK_DURATION: i32 = 2;
+const FOCUS_DURATION: i32 = 25;
+const SHORT_BREAK_DURATION: i32 = 5;
+const LONG_BREAK_DURATION: i32 = 30;
 const DEFAULT_WINDOW_TITLE: &str = "Pomodoro To Do List";
 
 fn main() -> eframe::Result {
@@ -92,51 +92,6 @@ impl Default for MyApp {
             pomodoros_estimate: 0,
         };
         self_setup.tasks = get_tasks(&self_setup.conn);
-        add_pomodoros(
-            &mut self_setup.conn,
-            20,
-            OffsetDateTime::new_in_offset(
-                Date::from_calendar_date(2024, Month::November, 5).unwrap(),
-                Time::from_hms(12, 59, 59).unwrap(),
-                UtcOffset::from_hms(2, 0, 0).unwrap(),
-            ),
-        );
-        add_pomodoros(
-            &mut self_setup.conn,
-            8,
-            OffsetDateTime::new_in_offset(
-                Date::from_calendar_date(2024, Month::November, 4).unwrap(),
-                Time::from_hms(12, 59, 59).unwrap(),
-                UtcOffset::from_hms(2, 0, 0).unwrap(),
-            ),
-        );
-        add_pomodoros(
-            &mut self_setup.conn,
-            7,
-            OffsetDateTime::new_in_offset(
-                Date::from_calendar_date(2024, Month::November, 3).unwrap(),
-                Time::from_hms(12, 59, 59).unwrap(),
-                UtcOffset::from_hms(2, 0, 0).unwrap(),
-            ),
-        );
-        add_pomodoros(
-            &mut self_setup.conn,
-            6,
-            OffsetDateTime::new_in_offset(
-                Date::from_calendar_date(2024, Month::November, 2).unwrap(),
-                Time::from_hms(12, 59, 59).unwrap(),
-                UtcOffset::from_hms(2, 0, 0).unwrap(),
-            ),
-        );
-        add_pomodoros(
-            &mut self_setup.conn,
-            6,
-            OffsetDateTime::new_in_offset(
-                Date::from_calendar_date(2024, Month::November, 1).unwrap(),
-                Time::from_hms(12, 59, 59).unwrap(),
-                UtcOffset::from_hms(2, 0, 0).unwrap(),
-            ),
-        );
         self_setup.pomodoros_estimate = get_pomodoros_median(&mut self_setup.conn);
 
         self_setup
@@ -291,7 +246,6 @@ fn create_timer(conn: &mut Connection, timer: Timer) {
             .unwrap();
         }
     }
-
     tx.commit().unwrap();
 }
 
@@ -523,7 +477,7 @@ impl eframe::App for MyApp {
                                     is_pomodoro: true,
                                     start: OffsetDateTime::now_local().unwrap(),
                                     duration: FOCUS_DURATION,
-                                    task: Some(0),
+                                    task: None,
                                 },
                             );
                             ctx.send_viewport_cmd(egui::ViewportCommand::Title(
@@ -563,7 +517,7 @@ impl eframe::App for MyApp {
                                     is_pomodoro: false,
                                     start: OffsetDateTime::now_local().unwrap(),
                                     duration: SHORT_BREAK_DURATION,
-                                    task: Some(0),
+                                    task: None,
                                 },
                             );
                             ctx.send_viewport_cmd(egui::ViewportCommand::Title(
@@ -603,7 +557,7 @@ impl eframe::App for MyApp {
                                     is_pomodoro: false,
                                     start: OffsetDateTime::now_local().unwrap(),
                                     duration: LONG_BREAK_DURATION,
-                                    task: Some(0),
+                                    task: None,
                                 },
                             );
                             ctx.send_viewport_cmd(egui::ViewportCommand::Title(

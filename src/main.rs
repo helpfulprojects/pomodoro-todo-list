@@ -33,8 +33,8 @@ fn setup_database() -> Result<Connection> {
     Ok(conn)
 }
 
-const FOCUS_DURATION: i32 = 25;
-const SHORT_BREAK_DURATION: i32 = 5;
+const FOCUS_DURATION: i32 = 20;
+const SHORT_BREAK_DURATION: i32 = 10;
 const LONG_BREAK_DURATION: i32 = 30;
 const DEFAULT_WINDOW_TITLE: &str = "Pomodoro To Do List";
 
@@ -79,6 +79,8 @@ struct MyApp {
     tasks: Vec<Task>,
     played_notification: bool,
     pomodoros_estimate: i32,
+    last_checked_time: OffsetDateTime,
+    timer_value: String,
 }
 
 impl Default for MyApp {
@@ -90,6 +92,8 @@ impl Default for MyApp {
             tasks: vec![],
             played_notification: false,
             pomodoros_estimate: 0,
+            last_checked_time: OffsetDateTime::now_local().unwrap(),
+            timer_value: "".to_string(),
         };
         self_setup.tasks = get_tasks(&self_setup.conn);
         self_setup.pomodoros_estimate = get_pomodoros_median(&mut self_setup.conn);
@@ -571,40 +575,45 @@ impl eframe::App for MyApp {
                         let start = timer.start;
                         let duration = timer.duration;
                         let now = OffsetDateTime::now_local().unwrap();
-                        let end = start
-                            .checked_add(Duration::minutes(duration.into()))
-                            .unwrap();
-                        let difference = end - now;
-                        let seconds = difference.whole_seconds() % 60;
-                        let minutes = (difference.whole_seconds() / 60) % 60;
-                        if seconds < 0 || minutes < 0 {
-                            if timer.is_pomodoro {
-                                ui.label("Done! Add point to task.");
+                        if (now - self.last_checked_time).whole_milliseconds() >= 300 {
+                            let end = start
+                                .checked_add(Duration::minutes(duration.into()))
+                                .unwrap();
+                            let difference = end - now;
+                            let seconds = difference.whole_seconds() % 60;
+                            let minutes = (difference.whole_seconds() / 60) % 60;
+                            if seconds < 0 || minutes < 0 {
+                                if timer.is_pomodoro {
+                                    self.timer_value = "Done! Add point to task.".to_string();
+                                } else {
+                                    delete_pomodoros_without_task(&mut self.conn);
+                                }
+                                if !self.played_notification {
+                                    play_notificaiton();
+                                    self.played_notification = true;
+                                    ctx.send_viewport_cmd(egui::ViewportCommand::Title(
+                                        DEFAULT_WINDOW_TITLE.to_string(),
+                                    ));
+                                }
                             } else {
-                                delete_pomodoros_without_task(&mut self.conn);
+                                self.timer_value = format!("{:0>2}:{:0>2}", minutes, seconds);
+                                if timer.is_pomodoro {
+                                    ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
+                                        "{:0>2}:{:0>2} Focus",
+                                        minutes, seconds
+                                    )));
+                                } else {
+                                    ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
+                                        "{:0>2}:{:0>2}",
+                                        minutes, seconds
+                                    )));
+                                }
                             }
-                            if !self.played_notification {
-                                play_notificaiton();
-                                self.played_notification = true;
-                                ctx.send_viewport_cmd(egui::ViewportCommand::Title(
-                                    DEFAULT_WINDOW_TITLE.to_string(),
-                                ));
-                            }
-                        } else {
-                            ui.label(format!("{:0>2}:{:0>2}", minutes, seconds));
-                            if timer.is_pomodoro {
-                                ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
-                                    "{:0>2}:{:0>2} Focus",
-                                    minutes, seconds
-                                )));
-                            } else {
-                                ctx.send_viewport_cmd(egui::ViewportCommand::Title(format!(
-                                    "{:0>2}:{:0>2}",
-                                    minutes, seconds
-                                )));
-                            }
+                            self.last_checked_time = now;
                         }
-
+                        ui.label(self.timer_value.clone());
+                        ui.ctx()
+                            .request_repaint_after(std::time::Duration::from_millis(300));
                         if ui
                             .add(egui::Button::frame(egui::Button::new("x"), false))
                             .on_hover_cursor(egui::CursorIcon::PointingHand)
@@ -615,8 +624,6 @@ impl eframe::App for MyApp {
                                 DEFAULT_WINDOW_TITLE.to_string(),
                             ));
                         }
-                        ui.ctx()
-                            .request_repaint_after(std::time::Duration::from_millis(300));
                     }
                 });
             });

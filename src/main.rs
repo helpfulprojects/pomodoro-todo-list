@@ -4,7 +4,7 @@ use rodio::{source::Source, Decoder, OutputStream};
 use rusqlite::{Connection, Result};
 use std::io::BufReader;
 use std::{cmp::max, fs::File};
-use time::{Duration, OffsetDateTime};
+use time::{Date, Duration, Month, OffsetDateTime, Time, UtcOffset};
 fn setup_database() -> Result<Connection> {
     let conn = Connection::open("tasks.db")?;
     //conn.execute("DROP TABLE IF EXISTS tasks", ())?;
@@ -78,6 +78,7 @@ struct MyApp {
     new_task_name: String,
     tasks: Vec<Task>,
     played_notification: bool,
+    pomodoros_estimate: i32,
 }
 
 impl Default for MyApp {
@@ -88,8 +89,55 @@ impl Default for MyApp {
             new_task_name: "".to_string(),
             tasks: vec![],
             played_notification: false,
+            pomodoros_estimate: 0,
         };
         self_setup.tasks = get_tasks(&self_setup.conn);
+        add_pomodoros(
+            &mut self_setup.conn,
+            20,
+            OffsetDateTime::new_in_offset(
+                Date::from_calendar_date(2024, Month::November, 5).unwrap(),
+                Time::from_hms(12, 59, 59).unwrap(),
+                UtcOffset::from_hms(2, 0, 0).unwrap(),
+            ),
+        );
+        add_pomodoros(
+            &mut self_setup.conn,
+            8,
+            OffsetDateTime::new_in_offset(
+                Date::from_calendar_date(2024, Month::November, 4).unwrap(),
+                Time::from_hms(12, 59, 59).unwrap(),
+                UtcOffset::from_hms(2, 0, 0).unwrap(),
+            ),
+        );
+        add_pomodoros(
+            &mut self_setup.conn,
+            7,
+            OffsetDateTime::new_in_offset(
+                Date::from_calendar_date(2024, Month::November, 3).unwrap(),
+                Time::from_hms(12, 59, 59).unwrap(),
+                UtcOffset::from_hms(2, 0, 0).unwrap(),
+            ),
+        );
+        add_pomodoros(
+            &mut self_setup.conn,
+            6,
+            OffsetDateTime::new_in_offset(
+                Date::from_calendar_date(2024, Month::November, 2).unwrap(),
+                Time::from_hms(12, 59, 59).unwrap(),
+                UtcOffset::from_hms(2, 0, 0).unwrap(),
+            ),
+        );
+        add_pomodoros(
+            &mut self_setup.conn,
+            6,
+            OffsetDateTime::new_in_offset(
+                Date::from_calendar_date(2024, Month::November, 1).unwrap(),
+                Time::from_hms(12, 59, 59).unwrap(),
+                UtcOffset::from_hms(2, 0, 0).unwrap(),
+            ),
+        );
+        self_setup.pomodoros_estimate = get_pomodoros_median(&mut self_setup.conn);
 
         self_setup
     }
@@ -105,7 +153,7 @@ fn play_notificaiton() {
 
 fn get_tasks(conn: &Connection) -> Vec<Task> {
     let mut tasks: Vec<Task> = vec![];
-    let mut stmt = conn.prepare("SELECT * FROM tasks").unwrap();
+    let mut stmt = conn.prepare("SELECT * FROM tasks where done = 0").unwrap();
     let tasks_iter = stmt
         .query_map([], |row| {
             Ok(Task {
@@ -192,13 +240,58 @@ fn delete_task(conn: &mut Connection, id: i32) {
     tx.commit().unwrap();
 }
 
+fn mean(numbers: &Vec<i32>) -> f32 {
+    let sum: i32 = numbers.iter().sum();
+
+    sum as f32 / numbers.len() as f32
+}
+
+fn median(numbers: &mut Vec<i32>) -> i32 {
+    numbers.sort();
+
+    let mid = numbers.len() / 2;
+    if numbers.len() % 2 == 0 {
+        mean(&vec![numbers[mid - 1], numbers[mid]]) as i32
+    } else {
+        numbers[mid]
+    }
+}
+
+fn get_pomodoros_median(conn: &mut Connection) -> i32 {
+    let mut pomodoros: Vec<i32> = vec![];
+    let mut stmt = conn
+        .prepare("select count(start) from timers where start >= date('now','-30 days') and start < date('now') and time(start) >= time('now') group by date(start)")
+        .unwrap();
+    let pomodoros_iter = stmt.query_map([], |row| Ok(row.get(0)?)).unwrap();
+    for pomodoro_count in pomodoros_iter {
+        pomodoros.push(pomodoro_count.unwrap());
+    }
+    if pomodoros.len() == 0 {
+        0
+    } else {
+        median(&mut pomodoros)
+    }
+}
+
 fn create_timer(conn: &mut Connection, timer: Timer) {
     let tx = conn.transaction().unwrap();
-    tx.execute(
-        "INSERT INTO timers (is_pomodoro, start, duration) VALUES (?1, ?2, ?3)",
-        (timer.is_pomodoro, timer.start, timer.duration),
-    )
-    .unwrap();
+    match timer.task {
+        Some(task) => {
+            tx.execute(
+                "INSERT INTO timers (is_pomodoro, start, duration, task) VALUES (?1, ?2, ?3, ?4)",
+                (timer.is_pomodoro, timer.start, timer.duration, task),
+            )
+            .unwrap();
+        }
+        None => {
+            tx.execute(
+                "INSERT INTO timers (is_pomodoro, start, duration) VALUES (?1, ?2, ?3)",
+                (timer.is_pomodoro, timer.start, timer.duration),
+            )
+            .unwrap();
+        }
+    }
+
     tx.commit().unwrap();
 }
 
@@ -223,6 +316,21 @@ fn create_task(conn: &mut Connection, task: Task) {
     )
     .unwrap();
     tx.commit().unwrap();
+}
+
+fn add_pomodoros(conn: &mut Connection, amount: i32, date: OffsetDateTime) {
+    for n in 1..=amount {
+        create_timer(
+            conn,
+            Timer {
+                id: 0,
+                is_pomodoro: true,
+                start: date,
+                duration: 25,
+                task: Some(1),
+            },
+        );
+    }
 }
 
 fn get_task_pomodoros(conn: &mut Connection, task_id: i32) -> usize {
@@ -393,13 +501,14 @@ impl eframe::App for MyApp {
                         if timers.len() > 0 && timers[0].is_pomodoro {
                             focus_button = Button::fill(
                                 Button::new(
-                                    RichText::new("Focus")
+                                    RichText::new(format!("Focus x{}", self.pomodoros_estimate))
                                         .color(Color32::from_hex("#FFF9F0").unwrap()),
                                 ),
                                 Color32::from_hex("#A80000").unwrap(),
                             );
                         } else {
-                            focus_button = Button::new("Focus");
+                            focus_button =
+                                Button::new(format!("Focus x{}", self.pomodoros_estimate));
                         }
                         if ui
                             .add(focus_button)
@@ -517,12 +626,15 @@ impl eframe::App for MyApp {
                         if seconds < 0 || minutes < 0 {
                             if timer.is_pomodoro {
                                 ui.label("Done! Add point to task.");
-                                if !self.played_notification {
-                                    play_notificaiton();
-                                    self.played_notification = true;
-                                }
                             } else {
                                 delete_pomodoros_without_task(&mut self.conn);
+                            }
+                            if !self.played_notification {
+                                play_notificaiton();
+                                self.played_notification = true;
+                                ctx.send_viewport_cmd(egui::ViewportCommand::Title(
+                                    DEFAULT_WINDOW_TITLE.to_string(),
+                                ));
                             }
                         } else {
                             ui.label(format!("{:0>2}:{:0>2}", minutes, seconds));
@@ -557,6 +669,7 @@ impl eframe::App for MyApp {
 
             if update_ui {
                 self.tasks = get_tasks(&self.conn);
+                self.pomodoros_estimate = get_pomodoros_median(&mut self.conn);
             }
         });
     }

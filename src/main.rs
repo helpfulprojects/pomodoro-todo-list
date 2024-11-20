@@ -3,6 +3,7 @@ use eframe::egui::{self, Button, Color32, ImageButton, RichText};
 use rodio::{source::Source, Decoder, OutputStream};
 use rusqlite::{Connection, Result};
 use std::io::BufReader;
+use std::path::Path;
 use std::{cmp::max, fs::File};
 use time::{Date, Duration, Month, OffsetDateTime, Time, UtcOffset};
 fn setup_database() -> Result<Connection> {
@@ -32,16 +33,21 @@ fn setup_database() -> Result<Connection> {
     )?;
     Ok(conn)
 }
+use serde::Deserialize;
 
-const FOCUS_DURATION: i32 = 20;
-const SHORT_BREAK_DURATION: i32 = 10;
-const LONG_BREAK_DURATION: i32 = 30;
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+struct Configuration {
+    focus_duration: i32,
+    short_break_duration: i32,
+    long_break_duration: i32,
+}
 const DEFAULT_WINDOW_TITLE: &str = "Pomodoro To Do List";
 
 fn main() -> eframe::Result {
     env_logger::init();
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([800.0, 500.0]),
+        viewport: egui::ViewportBuilder::default().with_maximized(true),
         ..Default::default()
     };
     eframe::run_native(
@@ -81,6 +87,7 @@ struct MyApp {
     pomodoros_estimate: i32,
     last_checked_time: OffsetDateTime,
     timer_value: String,
+    configuration: Configuration,
 }
 
 impl Default for MyApp {
@@ -94,7 +101,16 @@ impl Default for MyApp {
             pomodoros_estimate: 0,
             last_checked_time: OffsetDateTime::now_local().unwrap(),
             timer_value: "".to_string(),
+            configuration: Configuration {
+                focus_duration: 20,
+                short_break_duration: 10,
+                long_break_duration: 30,
+            },
         };
+        let json_file_path = Path::new("./configuration.json");
+        let file = File::open(json_file_path).expect("configuration file not found");
+        self_setup.configuration =
+            serde_json::from_reader(file).expect("JSON was not well-formatted");
         self_setup.tasks = get_tasks(&self_setup.conn);
         self_setup.pomodoros_estimate = get_pomodoros_median(&mut self_setup.conn);
 
@@ -480,7 +496,7 @@ impl eframe::App for MyApp {
                                     id: 0,
                                     is_pomodoro: true,
                                     start: OffsetDateTime::now_local().unwrap(),
-                                    duration: FOCUS_DURATION,
+                                    duration: self.configuration.focus_duration,
                                     task: None,
                                 },
                             );
@@ -496,7 +512,7 @@ impl eframe::App for MyApp {
                         let short_break_button: Button;
                         if timers.len() > 0
                             && !timers[0].is_pomodoro
-                            && timers[0].duration == SHORT_BREAK_DURATION
+                            && timers[0].duration == self.configuration.short_break_duration
                         {
                             short_break_button = Button::fill(
                                 Button::new(
@@ -520,7 +536,7 @@ impl eframe::App for MyApp {
                                     id: 0,
                                     is_pomodoro: false,
                                     start: OffsetDateTime::now_local().unwrap(),
-                                    duration: SHORT_BREAK_DURATION,
+                                    duration: self.configuration.short_break_duration,
                                     task: None,
                                 },
                             );
@@ -536,7 +552,7 @@ impl eframe::App for MyApp {
                         let long_break_button: Button;
                         if timers.len() > 0
                             && !timers[0].is_pomodoro
-                            && timers[0].duration == LONG_BREAK_DURATION
+                            && timers[0].duration == self.configuration.long_break_duration
                         {
                             long_break_button = Button::fill(
                                 Button::new(
@@ -560,7 +576,7 @@ impl eframe::App for MyApp {
                                     id: 0,
                                     is_pomodoro: false,
                                     start: OffsetDateTime::now_local().unwrap(),
-                                    duration: LONG_BREAK_DURATION,
+                                    duration: self.configuration.long_break_duration,
                                     task: None,
                                 },
                             );

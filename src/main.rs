@@ -1,5 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
-use eframe::egui::{self, Button, Color32, ImageButton, RichText};
+use eframe::egui::{self, Button, Color32, ImageButton, Label, RichText};
 use rodio::{source::Source, Decoder, OutputStream};
 use rusqlite::{Connection, Result};
 use std::io::BufReader;
@@ -88,6 +88,7 @@ struct MyApp {
     last_checked_time: OffsetDateTime,
     timer_value: String,
     configuration: Configuration,
+    timers_queue: Vec<Timer>,
 }
 
 impl Default for MyApp {
@@ -106,6 +107,7 @@ impl Default for MyApp {
                 short_break_duration: 10,
                 long_break_duration: 30,
             },
+            timers_queue: vec![],
         };
         let json_file_path = Path::new("./configuration.json");
         let file = File::open(json_file_path).expect("configuration file not found");
@@ -358,6 +360,19 @@ impl eframe::App for MyApp {
             ctx.set_pixels_per_point(2.0);
             let mut update_ui = false;
             let timers = get_running_timers(&mut self.conn);
+            if self.timers_queue.len() > 0 && timers.len() == 0 {
+                match self.timers_queue.pop() {
+                    Some(mut timer) => {
+                        timer.start = OffsetDateTime::now_local().unwrap();
+                        create_timer(&mut self.conn, timer);
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Title(
+                            DEFAULT_WINDOW_TITLE.to_string(),
+                        ));
+                        self.played_notification = false;
+                    }
+                    None => {}
+                }
+            }
             for task in self.tasks.iter_mut() {
                 if task.locked {
                     ui.horizontal(|ui| {
@@ -489,21 +504,13 @@ impl eframe::App for MyApp {
                             .on_hover_cursor(egui::CursorIcon::PointingHand)
                             .clicked()
                         {
-                            delete_pomodoros_without_task(&mut self.conn);
-                            create_timer(
-                                &mut self.conn,
-                                Timer {
-                                    id: 0,
-                                    is_pomodoro: true,
-                                    start: OffsetDateTime::now_local().unwrap(),
-                                    duration: self.configuration.focus_duration,
-                                    task: None,
-                                },
-                            );
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Title(
-                                DEFAULT_WINDOW_TITLE.to_string(),
-                            ));
-                            self.played_notification = false;
+                            self.timers_queue.push(Timer {
+                                id: 0,
+                                is_pomodoro: true,
+                                start: OffsetDateTime::now_local().unwrap(),
+                                duration: self.configuration.focus_duration,
+                                task: None,
+                            });
                         }
                     });
                     ui.scope(|ui| {
@@ -529,21 +536,13 @@ impl eframe::App for MyApp {
                             .on_hover_cursor(egui::CursorIcon::PointingHand)
                             .clicked()
                         {
-                            delete_pomodoros_without_task(&mut self.conn);
-                            create_timer(
-                                &mut self.conn,
-                                Timer {
-                                    id: 0,
-                                    is_pomodoro: false,
-                                    start: OffsetDateTime::now_local().unwrap(),
-                                    duration: self.configuration.short_break_duration,
-                                    task: None,
-                                },
-                            );
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Title(
-                                DEFAULT_WINDOW_TITLE.to_string(),
-                            ));
-                            self.played_notification = false;
+                            self.timers_queue.push(Timer {
+                                id: -1,
+                                is_pomodoro: false,
+                                start: OffsetDateTime::now_local().unwrap(),
+                                duration: self.configuration.short_break_duration,
+                                task: None,
+                            });
                         }
                     });
                     ui.scope(|ui| {
@@ -569,21 +568,13 @@ impl eframe::App for MyApp {
                             .on_hover_cursor(egui::CursorIcon::PointingHand)
                             .clicked()
                         {
-                            delete_pomodoros_without_task(&mut self.conn);
-                            create_timer(
-                                &mut self.conn,
-                                Timer {
-                                    id: 0,
-                                    is_pomodoro: false,
-                                    start: OffsetDateTime::now_local().unwrap(),
-                                    duration: self.configuration.long_break_duration,
-                                    task: None,
-                                },
-                            );
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Title(
-                                DEFAULT_WINDOW_TITLE.to_string(),
-                            ));
-                            self.played_notification = false;
+                            self.timers_queue.push(Timer {
+                                id: 0,
+                                is_pomodoro: false,
+                                start: OffsetDateTime::now_local().unwrap(),
+                                duration: self.configuration.long_break_duration,
+                                task: None,
+                            });
                         }
                     });
                     if timers.len() > 0 {
@@ -598,7 +589,7 @@ impl eframe::App for MyApp {
                             let difference = end - now;
                             let seconds = difference.whole_seconds() % 60;
                             let minutes = (difference.whole_seconds() / 60) % 60;
-                            if seconds < 0 || minutes < 0 {
+                            if difference.whole_seconds() <= 0 {
                                 if timer.is_pomodoro {
                                     self.timer_value = "Done! Add point to task.".to_string();
                                 } else {
@@ -640,6 +631,9 @@ impl eframe::App for MyApp {
                                 DEFAULT_WINDOW_TITLE.to_string(),
                             ));
                         }
+                    }
+                    for timer in self.timers_queue.iter() {
+                        ui.label(timer.duration.to_string());
                     }
                 });
             });
